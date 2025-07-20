@@ -1,0 +1,1331 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+    getAuth, 
+    signInAnonymously, 
+    onAuthStateChanged,
+    signInWithCustomToken
+} from 'firebase/auth';
+import { 
+    getFirestore, 
+    collection, 
+    doc, 
+    addDoc, 
+    getDocs, 
+    updateDoc, 
+    deleteDoc, 
+    onSnapshot,
+    query,
+    where,
+    setDoc
+} from 'firebase/firestore';
+import { Plus, Edit, Trash2, FileDown, Printer, User, Users, Calendar, BookOpen, BarChart3, LayoutDashboard, Menu, X, BookCopy, CheckCircle2, Target, Zap, Rocket, Info } from 'lucide-react';
+
+// --- Firebase Configuration ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+    ? JSON.parse(__firebase_config) 
+    : { apiKey: "your-fallback-api-key", authDomain: "...", projectId: "..." };
+
+// --- App ID Configuration ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-madrasah-app';
+
+// --- Initialize Firebase ---
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- Helper Components ---
+
+const Modal = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md m-4 animate-fade-in-up">
+                <div className="p-4 border-b flex justify-between items-center">
+                    <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
+                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 p-1 rounded-full hover:bg-slate-200">
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="p-6">
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
+    if (!isOpen) return null;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+            <p className="text-slate-600 mb-6">{message}</p>
+            <div className="flex justify-end gap-3">
+                <button onClick={onClose} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">
+                    Batal
+                </button>
+                <button onClick={onConfirm} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                    Ya, Hapus
+                </button>
+            </div>
+        </Modal>
+    );
+};
+
+const StatCard = ({ title, value, icon, color }) => (
+    <div className="bg-white p-6 rounded-xl shadow-md flex items-center justify-between transition-transform hover:scale-105">
+        <div>
+            <p className="text-sm font-medium text-slate-500">{title}</p>
+            <p className="text-3xl font-bold text-slate-800">{value}</p>
+        </div>
+        <div className={`rounded-full p-3 ${color}`}>
+            {icon}
+        </div>
+    </div>
+);
+
+const LoadingSpinner = () => (
+    <div className="flex justify-center items-center p-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+    </div>
+);
+
+const EmptyState = ({ message, onAction, actionText }) => (
+    <div className="text-center py-10 px-6 bg-slate-50 rounded-lg">
+        <div className="mx-auto bg-slate-200 rounded-full w-16 h-16 flex items-center justify-center">
+            <Info size={32} className="text-slate-500" />
+        </div>
+        <p className="mt-4 text-slate-600">{message}</p>
+        {onAction && actionText && (
+            <button onClick={onAction} className="mt-6 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors mx-auto">
+                <Plus size={18} /> {actionText}
+            </button>
+        )}
+    </div>
+);
+
+// --- Main Components ---
+
+const Welcome = ({ setView }) => {
+    return (
+        <div className="flex flex-col items-center justify-center min-h-full p-4 text-center animate-fade-in-up">
+            <div className="bg-blue-600 text-white rounded-full p-5 mb-6 shadow-lg">
+                <BookOpen size={48} />
+            </div>
+            <h1 className="text-4xl md:text-5xl font-extrabold text-blue-700">Selamat Datang di Aplikasi Absensi Madrasah</h1>
+            <p className="mt-4 max-w-2xl text-lg text-slate-600">
+                Solusi digital modern untuk mempermudah manajemen dan rekapitulasi kehadiran siswa secara efisien, akurat, dan real-time.
+            </p>
+
+            <div className="mt-12 w-full max-w-4xl">
+                <h2 className="text-2xl font-bold text-slate-800 mb-6">Fungsi dan Tujuan Aplikasi</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+                    <div className="bg-white p-6 rounded-lg shadow-md transition-transform hover:-translate-y-2">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-blue-100 p-3 rounded-full">
+                                <Zap size={24} className="text-blue-600" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-slate-900">Efisien & Cepat</h3>
+                        </div>
+                        <p className="mt-2 text-slate-600">Mempercepat proses pencatatan kehadiran harian dengan antarmuka yang simpel dan fitur 'Tandai Semua Hadir'.</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-lg shadow-md transition-transform hover:-translate-y-2">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-green-100 p-3 rounded-full">
+                                <Target size={24} className="text-green-600" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-slate-900">Akurat & Terpusat</h3>
+                        </div>
+                        <p className="mt-2 text-slate-600">Menyimpan semua data absensi secara terpusat, mengurangi risiko kesalahan manual dan kehilangan data.</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-lg shadow-md transition-transform hover:-translate-y-2">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-yellow-100 p-3 rounded-full">
+                                <FileDown size={24} className="text-yellow-600" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-slate-900">Laporan Otomatis</h3>
+                        </div>
+                        <p className="mt-2 text-slate-600">Menghasilkan laporan rekapitulasi secara otomatis yang siap untuk diekspor ke Excel atau dicetak kapan saja.</p>
+                    </div>
+                </div>
+            </div>
+
+            <button 
+                onClick={() => setView('dashboard')} 
+                className="mt-12 flex items-center gap-3 px-8 py-4 bg-blue-600 text-white font-bold text-lg rounded-lg shadow-lg hover:bg-blue-700 transition-transform hover:scale-105"
+            >
+                <Rocket size={22} />
+                Masuk ke Dashboard
+            </button>
+        </div>
+    );
+};
+
+const Dashboard = ({ db, userId, setView }) => {
+    const [stats, setStats] = useState({ classCount: 0, studentCount: 0, todayAttendance: 0, semesterCount: 0 });
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        if (!userId) return;
+
+        const fetchStats = async () => {
+            setIsLoading(true);
+            try {
+                const classQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'classes'));
+                const studentQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'students'));
+                const semesterQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'semesters'));
+                
+                const [classSnap, studentSnap, semesterSnap] = await Promise.all([ getDocs(classQuery), getDocs(studentQuery), getDocs(semesterQuery) ]);
+                
+                const classCount = classSnap.size;
+                const studentCount = studentSnap.size;
+                const semesterCount = semesterSnap.size;
+
+                let totalPresent = 0;
+                if (studentCount > 0) {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const attendanceQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), where("date", "==", today));
+                    const attendanceSnapshot = await getDocs(attendanceQuery);
+                    
+                    attendanceSnapshot.forEach(doc => {
+                        Object.values(doc.data().records).forEach(status => {
+                            if (status === 'Hadir') totalPresent++;
+                        });
+                    });
+                }
+                
+                const attendancePercentage = studentCount > 0 ? Math.round((totalPresent / studentCount) * 100) : 0;
+                setStats({ classCount, studentCount, semesterCount, todayAttendance: attendancePercentage });
+            } catch (error) {
+                console.error("Error fetching dashboard stats:", error);
+            }
+            setIsLoading(false);
+        };
+
+        const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), fetchStats);
+        return () => unsub();
+    }, [db, userId]);
+
+    const GettingStarted = () => {
+        if (stats.semesterCount === 0) {
+            return (
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
+                    <p className="font-bold">Langkah Pertama</p>
+                    <p>Anda belum memiliki data semester. Silakan buat data semester terlebih dahulu untuk memulai.</p>
+                    <button onClick={() => setView('semester')} className="mt-2 font-bold underline">Buka Data Semester</button>
+                </div>
+            )
+        }
+        if (stats.classCount === 0) {
+             return (
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
+                    <p className="font-bold">Langkah Selanjutnya</p>
+                    <p>Semester sudah ada. Sekarang, tambahkan data kelas untuk mengelompokkan siswa.</p>
+                    <button onClick={() => setView('kelas')} className="mt-2 font-bold underline">Buka Data Kelas</button>
+                </div>
+            )
+        }
+        if (stats.studentCount === 0) {
+             return (
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
+                    <p className="font-bold">Langkah Terakhir</p>
+                    <p>Kelas sudah dibuat. Saatnya menambahkan siswa pertama Anda ke dalam kelas.</p>
+                    <button onClick={() => setView('siswa')} className="mt-2 font-bold underline">Buka Data Siswa</button>
+                </div>
+            )
+        }
+        return null;
+    }
+
+    return (
+        <div>
+            <h1 className="text-3xl font-bold text-slate-800 mb-6">Dashboard</h1>
+            {isLoading ? <LoadingSpinner /> :
+                <>
+                    <div className="mb-6">
+                        <GettingStarted />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <StatCard title="Jumlah Siswa" value={stats.studentCount} icon={<Users size={24} className="text-blue-500" />} color="bg-blue-100" />
+                        <StatCard title="Jumlah Kelas" value={stats.classCount} icon={<BookCopy size={24} className="text-green-500" />} color="bg-green-100" />
+                        <StatCard title="Kehadiran Hari Ini" value={`${stats.todayAttendance}%`} icon={<BarChart3 size={24} className="text-yellow-500" />} color="bg-yellow-100" />
+                    </div>
+                </>
+            }
+            <div className="mt-8 bg-white p-6 rounded-xl shadow-md">
+                <h2 className="text-xl font-bold text-slate-800 mb-4">Akses Cepat</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    <button onClick={() => setView('absensi')} className="p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-transform hover:scale-105 flex items-center justify-center gap-3">
+                        <Calendar size={20} /> Input Absensi
+                    </button>
+                    <button onClick={() => setView('rekap')} className="p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-transform hover:scale-105 flex items-center justify-center gap-3">
+                        <FileDown size={20} /> Rekapitulasi
+                    </button>
+                     <button onClick={() => setView('siswa')} className="p-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-transform hover:scale-105 flex items-center justify-center gap-3">
+                        <User size={20} /> Manajemen Siswa
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Data Semester Component
+const DataSemester = ({ db, userId }) => {
+    const [semesters, setSemesters] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    
+    const [currentSemester, setCurrentSemester] = useState(null);
+    const [semesterToDelete, setSemesterToDelete] = useState(null);
+
+    const [name, setName] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+
+    const semestersCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'semesters'), [db]);
+
+    useEffect(() => {
+        if (!userId) return;
+        setIsLoading(true);
+        const unsubscribe = onSnapshot(semestersCollectionRef, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSemesters(data.sort((a, b) => b.startDate.localeCompare(a.startDate)));
+            setIsLoading(false);
+        });
+        return () => unsubscribe();
+    }, [userId, semestersCollectionRef]);
+
+    const handleOpenModal = (semester = null) => {
+        setCurrentSemester(semester);
+        setName(semester ? semester.name : '');
+        setStartDate(semester ? semester.startDate : '');
+        setEndDate(semester ? semester.endDate : '');
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setCurrentSemester(null);
+        setName('');
+        setStartDate('');
+        setEndDate('');
+    };
+
+    const handleSave = async () => {
+        if (!name.trim() || !startDate || !endDate) {
+            alert("Semua field harus diisi.");
+            return;
+        }
+
+        const semesterData = { name, startDate, endDate };
+
+        try {
+            if (currentSemester) {
+                const semesterDoc = doc(db, 'artifacts', appId, 'public', 'data', 'semesters', currentSemester.id);
+                await updateDoc(semesterDoc, semesterData);
+            } else {
+                await addDoc(semestersCollectionRef, semesterData);
+            }
+            handleCloseModal();
+        } catch (error) {
+            console.error("Error saving semester: ", error);
+            alert("Gagal menyimpan data semester.");
+        }
+    };
+
+    const handleOpenConfirmModal = (semester) => {
+        setSemesterToDelete(semester);
+        setIsConfirmModalOpen(true);
+    };
+
+    const handleCloseConfirmModal = () => {
+        setIsConfirmModalOpen(false);
+        setSemesterToDelete(null);
+    };
+
+    const handleDelete = async () => {
+        if (!semesterToDelete) return;
+        try {
+            const semesterDoc = doc(db, 'artifacts', appId, 'public', 'data', 'semesters', semesterToDelete.id);
+            await deleteDoc(semesterDoc);
+            handleCloseConfirmModal();
+        } catch (error) {
+            console.error("Error deleting semester: ", error);
+            alert("Gagal menghapus data semester.");
+        }
+    };
+
+    return (
+        <div>
+            <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                <h2 className="text-3xl font-bold text-slate-800">Data Semester</h2>
+                <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors w-full md:w-auto">
+                    <Plus size={18} /> Tambah Semester
+                </button>
+            </div>
+            {isLoading ? <LoadingSpinner /> : (
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nama Semester</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tanggal Mulai</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tanggal Selesai</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                                {semesters.length > 0 ? semesters.map(s => (
+                                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{s.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{s.startDate}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{s.endDate}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button onClick={() => handleOpenModal(s)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Edit size={18}/></button>
+                                            <button onClick={() => handleOpenConfirmModal(s)} className="text-red-600 hover:text-red-900"><Trash2 size={18}/></button>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                        <td colSpan="4">
+                                            <EmptyState message="Belum ada data semester." actionText="Tambah Semester" onAction={() => handleOpenModal()} />
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={currentSemester ? 'Edit Semester' : 'Tambah Semester'}>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="semesterName" className="block text-sm font-medium text-slate-700 mb-1">Nama Semester</label>
+                        <input type="text" id="semesterName" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Contoh: Ganjil 2024/2025" />
+                    </div>
+                    <div>
+                        <label htmlFor="startDate" className="block text-sm font-medium text-slate-700 mb-1">Tanggal Mulai</label>
+                        <input type="date" id="startDate" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                    <div>
+                        <label htmlFor="endDate" className="block text-sm font-medium text-slate-700 mb-1">Tanggal Selesai</label>
+                        <input type="date" id="endDate" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button onClick={handleCloseModal} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">Batal</button>
+                        <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Simpan</button>
+                    </div>
+                </div>
+            </Modal>
+            <ConfirmationModal 
+                isOpen={isConfirmModalOpen}
+                onClose={handleCloseConfirmModal}
+                onConfirm={handleDelete}
+                title="Konfirmasi Hapus"
+                message={`Apakah Anda yakin ingin menghapus semester "${semesterToDelete?.name}"?`}
+            />
+        </div>
+    );
+};
+
+const DataKelas = ({ db, userId }) => {
+    const [classes, setClasses] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    const [currentClass, setCurrentClass] = useState(null);
+    const [className, setClassName] = useState('');
+    const [waliKelas, setWaliKelas] = useState('');
+    const [classToDelete, setClassToDelete] = useState(null);
+
+    const classesCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'classes'), [db]);
+
+    useEffect(() => {
+        if (!userId) return;
+        setIsLoading(true);
+        const unsubscribe = onSnapshot(query(classesCollectionRef), (snapshot) => {
+            const classesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(classesData.sort((a, b) => a.name.localeCompare(b.name)));
+            setIsLoading(false);
+        }, (error) => {
+            console.error("Error fetching classes: ", error);
+            setIsLoading(false);
+        });
+        return () => unsubscribe();
+    }, [userId, classesCollectionRef]);
+
+    const handleOpenModal = (cls = null) => {
+        setCurrentClass(cls);
+        setClassName(cls ? cls.name : '');
+        setWaliKelas(cls ? cls.waliKelas : '');
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setCurrentClass(null);
+        setClassName('');
+        setWaliKelas('');
+    };
+
+    const handleSave = async () => {
+        if (!className.trim()) {
+            alert("Nama kelas tidak boleh kosong.");
+            return;
+        }
+
+        const classData = {
+            name: className,
+            waliKelas: waliKelas || ''
+        };
+
+        try {
+            if (currentClass) {
+                const classDoc = doc(db, 'artifacts', appId, 'public', 'data', 'classes', currentClass.id);
+                await updateDoc(classDoc, classData);
+            } else {
+                await addDoc(classesCollectionRef, classData);
+            }
+            handleCloseModal();
+        } catch (error) {
+            console.error("Error saving class: ", error);
+            alert("Gagal menyimpan data kelas.");
+        }
+    };
+    
+    const handleOpenConfirmModal = (cls) => {
+        setClassToDelete(cls);
+        setIsConfirmModalOpen(true);
+    };
+
+    const handleCloseConfirmModal = () => {
+        setIsConfirmModalOpen(false);
+        setClassToDelete(null);
+    };
+
+    const handleDelete = async () => {
+        if (!classToDelete) return;
+        try {
+            const classDoc = doc(db, 'artifacts', appId, 'public', 'data', 'classes', classToDelete.id);
+            await deleteDoc(classDoc);
+            handleCloseConfirmModal();
+        } catch (error) {
+            console.error("Error deleting class: ", error);
+            alert("Gagal menghapus data kelas.");
+        }
+    };
+
+    return (
+        <div>
+            <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                <h2 className="text-3xl font-bold text-slate-800">Data Kelas</h2>
+                <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors w-full md:w-auto">
+                    <Plus size={18} /> Tambah Kelas
+                </button>
+            </div>
+            {isLoading ? <LoadingSpinner /> : (
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                   <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nama Kelas</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Wali Kelas</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                                {classes.length > 0 ? classes.map(cls => (
+                                    <tr key={cls.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{cls.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{cls.waliKelas || '-'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button onClick={() => handleOpenModal(cls)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Edit size={18}/></button>
+                                            <button onClick={() => handleOpenConfirmModal(cls)} className="text-red-600 hover:text-red-900"><Trash2 size={18}/></button>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                       <td colSpan="3">
+                                            <EmptyState message="Belum ada data kelas." actionText="Tambah Kelas" onAction={() => handleOpenModal()} />
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={currentClass ? 'Edit Kelas' : 'Tambah Kelas'}>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="className" className="block text-sm font-medium text-slate-700 mb-1">Nama Kelas</label>
+                        <input
+                            type="text"
+                            id="className"
+                            value={className}
+                            onChange={(e) => setClassName(e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="Contoh: Kelas 1 A"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="waliKelas" className="block text-sm font-medium text-slate-700 mb-1">Wali Kelas</label>
+                        <input
+                            type="text"
+                            id="waliKelas"
+                            value={waliKelas}
+                            onChange={(e) => setWaliKelas(e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="Nama Wali Kelas (Opsional)"
+                        />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button onClick={handleCloseModal} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">Batal</button>
+                        <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Simpan</button>
+                    </div>
+                </div>
+            </Modal>
+            <ConfirmationModal 
+                isOpen={isConfirmModalOpen}
+                onClose={handleCloseConfirmModal}
+                onConfirm={handleDelete}
+                title="Konfirmasi Hapus"
+                message={`Apakah Anda yakin ingin menghapus kelas "${classToDelete?.name}"? Tindakan ini tidak dapat dibatalkan.`}
+            />
+        </div>
+    );
+};
+
+const DataSiswa = ({ db, userId }) => {
+    const [students, setStudents] = useState([]);
+    const [classes, setClasses] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    
+    const [currentStudent, setCurrentStudent] = useState(null);
+    const [studentToDelete, setStudentToDelete] = useState(null);
+
+    const [nis, setNis] = useState('');
+    const [name, setName] = useState('');
+    const [classId, setClassId] = useState('');
+
+    const studentsCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'students'), [db]);
+    const classesCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'classes'), [db]);
+
+    useEffect(() => {
+        if (!userId) return;
+        setIsLoading(true);
+        const unsubStudents = onSnapshot(studentsCollectionRef, (snapshot) => {
+            const studentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setStudents(studentsData.sort((a,b) => a.name.localeCompare(b.name)));
+            setIsLoading(false);
+        });
+
+        const unsubClasses = onSnapshot(classesCollectionRef, (snapshot) => {
+            const classesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(classesData.sort((a,b) => a.name.localeCompare(b.name)));
+        });
+
+        return () => {
+            unsubStudents();
+            unsubClasses();
+        };
+    }, [userId, studentsCollectionRef, classesCollectionRef]);
+
+    const handleOpenModal = (student = null) => {
+        setCurrentStudent(student);
+        setNis(student ? student.nis : '');
+        setName(student ? student.name : '');
+        setClassId(student ? student.classId : '');
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setCurrentStudent(null);
+        setNis('');
+        setName('');
+        setClassId('');
+    };
+
+    const handleSave = async () => {
+        if (!nis.trim() || !name.trim() || !classId) {
+            alert("Semua field harus diisi.");
+            return;
+        }
+        
+        const selectedClass = classes.find(c => c.id === classId);
+        if (!selectedClass) {
+            alert("Kelas tidak valid.");
+            return;
+        }
+
+        const studentData = {
+            nis,
+            name,
+            classId,
+            className: selectedClass.name
+        };
+
+        try {
+            if (currentStudent) {
+                const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'students', currentStudent.id);
+                await updateDoc(studentDoc, studentData);
+            } else {
+                await addDoc(studentsCollectionRef, studentData);
+            }
+            handleCloseModal();
+        } catch (error) {
+            console.error("Error saving student: ", error);
+            alert("Gagal menyimpan data siswa.");
+        }
+    };
+
+    const handleOpenConfirmModal = (student) => {
+        setStudentToDelete(student);
+        setIsConfirmModalOpen(true);
+    };
+    
+    const handleCloseConfirmModal = () => {
+        setIsConfirmModalOpen(false);
+        setStudentToDelete(null);
+    };
+
+    const handleDelete = async () => {
+        if (!studentToDelete) return;
+        try {
+            const studentDoc = doc(db, 'artifacts', appId, 'public', 'data', 'students', studentToDelete.id);
+            await deleteDoc(studentDoc);
+            handleCloseConfirmModal();
+        } catch (error) {
+            console.error("Error deleting student: ", error);
+            alert("Gagal menghapus data siswa.");
+        }
+    };
+
+    return (
+        <div>
+            <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                <h2 className="text-3xl font-bold text-slate-800">Data Siswa</h2>
+                <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors w-full md:w-auto" disabled={classes.length === 0}>
+                    <Plus size={18} /> Tambah Siswa
+                </button>
+            </div>
+             {classes.length === 0 && <p className="text-yellow-600 bg-yellow-100 p-3 rounded-md mb-4">Silakan tambah data kelas terlebih dahulu sebelum menambahkan siswa.</p>}
+            {isLoading ? <LoadingSpinner /> : (
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">NIS</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nama Siswa</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Kelas</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                                {students.length > 0 ? students.map(student => (
+                                    <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{student.nis}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{student.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{student.className}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button onClick={() => handleOpenModal(student)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Edit size={18}/></button>
+                                            <button onClick={() => handleOpenConfirmModal(student)} className="text-red-600 hover:text-red-900"><Trash2 size={18}/></button>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                       <td colSpan="4">
+                                            <EmptyState message="Belum ada data siswa." actionText="Tambah Siswa" onAction={() => handleOpenModal()} />
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={currentStudent ? 'Edit Siswa' : 'Tambah Siswa'}>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="nis" className="block text-sm font-medium text-slate-700 mb-1">NIS</label>
+                        <input type="text" id="nis" value={nis} onChange={(e) => setNis(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                    <div>
+                        <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap</label>
+                        <input type="text" id="name" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                    <div>
+                        <label htmlFor="classId" className="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
+                        <select id="classId" value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">Pilih Kelas</option>
+                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button onClick={handleCloseModal} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">Batal</button>
+                        <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Simpan</button>
+                    </div>
+                </div>
+            </Modal>
+             <ConfirmationModal 
+                isOpen={isConfirmModalOpen}
+                onClose={handleCloseConfirmModal}
+                onConfirm={handleDelete}
+                title="Konfirmasi Hapus"
+                message={`Apakah Anda yakin ingin menghapus siswa "${studentToDelete?.name}"?`}
+            />
+        </div>
+    );
+};
+
+const DataAbsensi = ({ db, userId, showToast }) => {
+    const [semesters, setSemesters] = useState([]);
+    const [classes, setClasses] = useState([]);
+    const [students, setStudents] = useState([]);
+    const [selectedSemesterId, setSelectedSemesterId] = useState('');
+    const [selectedClassId, setSelectedClassId] = useState('');
+    const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10));
+    const [attendanceData, setAttendanceData] = useState({});
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    
+    const attendanceCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), [db]);
+    const classesCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'classes'), [db]);
+    const studentsCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'students'), [db]);
+    const semestersCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'semesters'), [db]);
+
+    useEffect(() => {
+        if (!userId) return;
+        onSnapshot(semestersCollectionRef, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSemesters(data.sort((a, b) => b.startDate.localeCompare(a.startDate)));
+        });
+        onSnapshot(classesCollectionRef, (snapshot) => {
+            setClasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => a.name.localeCompare(b.name)));
+        });
+    }, [userId, semestersCollectionRef, classesCollectionRef]);
+
+    useEffect(() => {
+        const fetchStudentsAndAttendance = async () => {
+            if (!selectedClassId || !attendanceDate || !selectedSemesterId) {
+                setStudents([]);
+                setAttendanceData({});
+                return;
+            }
+            setIsLoading(true);
+
+            const qStudents = query(studentsCollectionRef, where("classId", "==", selectedClassId));
+            const studentSnapshot = await getDocs(qStudents);
+            const studentList = studentSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => a.name.localeCompare(b.name));
+            setStudents(studentList);
+
+            const attendanceDocId = `${selectedSemesterId}_${selectedClassId}_${attendanceDate}`;
+            const docSnap = await getDocs(query(attendanceCollectionRef, where("docId", "==", attendanceDocId)));
+            
+            let existingRecords = {};
+            if (!docSnap.empty) {
+                existingRecords = docSnap.docs[0].data().records;
+            }
+
+            const initialAttendance = {};
+            studentList.forEach(student => {
+                initialAttendance[student.id] = existingRecords[student.id] || 'Hadir';
+            });
+            setAttendanceData(initialAttendance);
+            setIsLoading(false);
+        };
+
+        fetchStudentsAndAttendance();
+    }, [selectedClassId, attendanceDate, selectedSemesterId, userId, db]);
+
+    const handleSaveAttendance = async () => {
+        if (Object.keys(attendanceData).length === 0) {
+            showToast("Tidak ada data untuk disimpan.", "error");
+            return;
+        }
+        setIsSaving(true);
+        const attendanceDocId = `${selectedSemesterId}_${selectedClassId}_${attendanceDate}`;
+        const attendanceDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', attendanceDocId);
+
+        try {
+            await setDoc(attendanceDocRef, {
+                docId: attendanceDocId,
+                semesterId: selectedSemesterId,
+                classId: selectedClassId,
+                date: attendanceDate,
+                records: attendanceData
+            });
+            showToast("Data absensi berhasil disimpan!");
+        } catch (error) {
+            console.error("Error saving attendance: ", error);
+            showToast("Gagal menyimpan data absensi.", "error");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+    
+    const markAllAsPresent = () => {
+        if (students.length === 0) return;
+        const newAttendanceData = { ...attendanceData };
+        students.forEach(student => {
+            newAttendanceData[student.id] = 'Hadir';
+        });
+        setAttendanceData(newAttendanceData);
+        showToast("Semua siswa ditandai Hadir.");
+    };
+
+    const attendanceOptions = ['Hadir', 'Sakit', 'Izin', 'Alfa'];
+
+    return (
+        <div>
+            <h2 className="text-3xl font-bold text-slate-800 mb-6">Input Absensi Harian</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-white rounded-lg shadow">
+                <div>
+                    <label htmlFor="semester-select" className="block text-sm font-medium text-slate-700 mb-1">Semester</label>
+                    <select id="semester-select" value={selectedSemesterId} onChange={e => setSelectedSemesterId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="">-- Pilih Semester --</option>
+                        {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </div>
+                 <div>
+                    <label htmlFor="class-select" className="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
+                    <select id="class-select" value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" disabled={!selectedSemesterId}>
+                        <option value="">-- Pilih Kelas --</option>
+                        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="date-select" className="block text-sm font-medium text-slate-700 mb-1">Tanggal</label>
+                    <input type="date" id="date-select" value={attendanceDate} onChange={e => setAttendanceDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" disabled={!selectedClassId} />
+                </div>
+            </div>
+
+            {isLoading ? <LoadingSpinner /> : (
+                students.length > 0 ? (
+                    <div className="bg-white shadow-md rounded-lg">
+                        <div className="p-4 border-b flex justify-end">
+                            <button onClick={markAllAsPresent} className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded-md hover:bg-teal-600 transition-colors text-sm">
+                                <CheckCircle2 size={16} /> Tandai Semua Hadir
+                            </button>
+                        </div>
+                        <ul className="divide-y divide-slate-200">
+                            {students.map(student => (
+                                <li key={student.id} className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center">
+                                    <span className="font-medium text-slate-800">{student.name}</span>
+                                    <div className="flex items-center gap-x-2 sm:gap-x-3 mt-2 md:mt-0 flex-wrap">
+                                        {attendanceOptions.map(status => (
+                                            <div key={status} className="flex items-center my-1">
+                                                <input type="radio" name={`attendance-${student.id}`} id={`attendance-${student.id}-${status}`} value={status} checked={attendanceData[student.id] === status} onChange={() => setAttendanceData(prev => ({ ...prev, [student.id]: status }))} className="shrink-0 mt-0.5 border-slate-300 rounded-full text-blue-600 focus:ring-blue-500" />
+                                                <label htmlFor={`attendance-${student.id}-${status}`} className="text-sm text-slate-600 ml-2">{status}</label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                        <div className="p-4 border-t flex justify-end items-center gap-4">
+                            <button onClick={handleSaveAttendance} className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-slate-400 transition-colors" disabled={isSaving}>
+                                {isSaving ? 'Menyimpan...' : 'Simpan Absensi'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (selectedClassId && <p className="text-center py-6 text-slate-500">Tidak ada siswa di kelas ini atau data belum lengkap.</p>)
+            )}
+        </div>
+    );
+};
+
+const RekapAbsensi = ({ db, userId }) => {
+    const [semesters, setSemesters] = useState([]);
+    const [classes, setClasses] = useState([]);
+    const [students, setStudents] = useState([]);
+    const [selectedSemesterId, setSelectedSemesterId] = useState('');
+    const [selectedClassId, setSelectedClassId] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [recapData, setRecapData] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const semestersCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'semesters'), [db]);
+    const classesCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'classes'), [db]);
+    const studentsCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'students'), [db]);
+    const attendanceCollectionRef = useMemo(() => collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), [db]);
+
+    useEffect(() => {
+        const scriptId = 'xlsx-script';
+        if (!document.getElementById(scriptId)) {
+            const script = document.createElement('script');
+            script.id = scriptId;
+            script.src = "https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js";
+            script.async = true;
+            document.body.appendChild(script);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!userId) return;
+        onSnapshot(semestersCollectionRef, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSemesters(data.sort((a, b) => b.startDate.localeCompare(a.startDate)));
+        });
+        onSnapshot(classesCollectionRef, (snapshot) => {
+            setClasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => a.name.localeCompare(b.name)));
+        });
+    }, [userId, semestersCollectionRef, classesCollectionRef]);
+    
+    useEffect(() => {
+        if (!selectedClassId) {
+            setStudents([]);
+            return;
+        }
+        const q = query(studentsCollectionRef, where("classId", "==", selectedClassId));
+        const unsubStudents = onSnapshot(q, (snapshot) => {
+            setStudents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => a.name.localeCompare(b.name)));
+        });
+        return () => unsubStudents();
+    }, [selectedClassId, studentsCollectionRef]);
+
+    useEffect(() => {
+        if (selectedSemesterId) {
+            const semester = semesters.find(s => s.id === selectedSemesterId);
+            if (semester) {
+                setStartDate(semester.startDate);
+                setEndDate(semester.endDate);
+            }
+        } else {
+            setStartDate('');
+            setEndDate('');
+        }
+    }, [selectedSemesterId, semesters]);
+
+    const handleGenerateRecap = async () => {
+        if (!selectedSemesterId || !selectedClassId || !startDate || !endDate) {
+            alert("Harap pilih semester, kelas, tanggal mulai, dan tanggal selesai.");
+            return;
+        }
+        setIsLoading(true);
+
+        const q = query(attendanceCollectionRef, 
+            where("semesterId", "==", selectedSemesterId),
+            where("classId", "==", selectedClassId)
+        );
+
+        const attendanceSnapshot = await getDocs(q);
+        
+        const attendanceRecords = attendanceSnapshot.docs
+            .map(doc => doc.data())
+            .filter(record => record.date >= startDate && record.date <= endDate);
+
+        const summary = students.map(student => {
+            const studentSummary = { id: student.id, nis: student.nis, name: student.name, Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0 };
+            attendanceRecords.forEach(record => {
+                const status = record.records[student.id];
+                if (status && studentSummary.hasOwnProperty(status)) {
+                    studentSummary[status]++;
+                }
+            });
+            return studentSummary;
+        });
+
+        setRecapData(summary);
+        setIsLoading(false);
+    };
+    
+    const handleExportToExcel = () => {
+        if (typeof window.XLSX === 'undefined') {
+            alert("Pustaka untuk ekspor sedang dimuat, silakan coba beberapa saat lagi.");
+            return;
+        }
+        if (recapData.length === 0) {
+            alert("Tidak ada data rekap untuk diekspor.");
+            return;
+        }
+        const selectedClass = classes.find(c => c.id === selectedClassId);
+        const className = selectedClass ? selectedClass.name : 'kelas';
+        const filename = `rekap_absensi_${className.replace(/\s/g, '_')}_${startDate}_sd_${endDate}.xlsx`;
+        
+        const worksheetData = recapData.map(item => ({ 'NIS': item.nis, 'Nama Siswa': item.name, 'Hadir': item.Hadir, 'Sakit': item.Sakit, 'Izin': item.Izin, 'Alfa': item.Alfa }));
+
+        const worksheet = window.XLSX.utils.json_to_sheet(worksheetData);
+        const workbook = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(workbook, worksheet, "Rekap Absensi");
+        window.XLSX.writeFile(workbook, filename);
+    };
+    
+    const handlePrint = () => {
+        if (recapData.length === 0) {
+            alert("Tidak ada data rekap untuk dicetak.");
+            return;
+        }
+        window.print();
+    };
+    
+    const selectedClassDetails = classes.find(c => c.id === selectedClassId);
+
+    return (
+        <div>
+            <div className="print-hide">
+                <h2 className="text-3xl font-bold text-slate-800 mb-6">Rekapitulasi Absensi</h2>
+                <div className="p-4 bg-white rounded-lg shadow mb-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div>
+                             <label htmlFor="rekap-semester-select" className="block text-sm font-medium text-slate-700 mb-1">Semester</label>
+                             <select id="rekap-semester-select" value={selectedSemesterId} onChange={e => setSelectedSemesterId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="">-- Pilih Semester --</option>
+                                {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                             <label htmlFor="rekap-class-select" className="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
+                             <select id="rekap-class-select" value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" disabled={!selectedSemesterId}>
+                                <option value="">-- Pilih Kelas --</option>
+                                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                             <label htmlFor="start-date" className="block text-sm font-medium text-slate-700 mb-1">Tanggal Mulai</label>
+                             <input type="date" id="start-date" value={startDate} onChange={e => setStartDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" disabled={!selectedClassId}/>
+                        </div>
+                        <div>
+                             <label htmlFor="end-date" className="block text-sm font-medium text-slate-700 mb-1">Tanggal Selesai</label>
+                             <input type="date" id="end-date" value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" disabled={!selectedClassId}/>
+                        </div>
+                    </div>
+                    <div className="flex justify-end">
+                        <button onClick={handleGenerateRecap} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors" disabled={isLoading}>
+                            {isLoading ? 'Memproses...' : 'Buat Rekap'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {isLoading ? <LoadingSpinner /> : recapData.length > 0 && (
+                <div id="rekap-section">
+                    <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 print-hide gap-3">
+                        <h3 className="text-xl font-bold text-slate-700">Hasil Rekapitulasi</h3>
+                        <div className="flex gap-2">
+                            <button onClick={handleExportToExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                                <FileDown size={18}/> Excel
+                            </button>
+                            <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors">
+                                <Printer size={18}/> Cetak
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="print-only mb-4 hidden">
+                        <h1 className="text-2xl font-bold text-center">Rekapitulasi Kehadiran Siswa</h1>
+                        <h2 className="text-xl text-center">{semesters.find(s => s.id === selectedSemesterId)?.name}</h2>
+                        <h3 className="text-lg text-center">{selectedClassDetails?.name}</h3>
+                        {selectedClassDetails?.waliKelas && <p className="text-center text-sm">Wali Kelas: {selectedClassDetails.waliKelas}</p>}
+                        <p className="text-center text-sm">Periode: {startDate} s/d {endDate}</p>
+                    </div>
+
+                    <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">NIS</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nama Siswa</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Hadir</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Sakit</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Izin</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Alfa</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                                {recapData.map(item => (
+                                    <tr key={item.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.nis}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{item.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 text-center">{item.Hadir}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 text-center">{item.Sakit}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 text-center">{item.Izin}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 text-center">{item.Alfa}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// Main App Component
+export default function App() {
+    const [view, setView] = useState('welcome');
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [userId, setUserId] = useState(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+    const showToast = (message, type = 'success') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => {
+            setToast({ show: false, message: '', type: 'success' });
+        }, 3000);
+    };
+
+    useEffect(() => {
+        const authAndListen = async () => {
+            try {
+                const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialToken) {
+                    await signInWithCustomToken(auth, initialToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+                if (error.code === 'auth/invalid-custom-token') {
+                    await signInAnonymously(auth);
+                }
+            }
+        };
+
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user) setUserId(user.uid);
+            else setUserId(null);
+            setIsAuthReady(true);
+        });
+
+        authAndListen();
+        return () => unsubscribe();
+    }, []);
+    
+    const handleSetView = (newView) => {
+        setView(newView);
+        if (window.innerWidth < 768) { // md breakpoint
+            setIsSidebarOpen(false);
+        }
+    }
+
+    const renderMainContent = () => {
+        if (!isAuthReady) {
+            return <div className="flex justify-center items-center h-full"><LoadingSpinner /></div>;
+        }
+        if (!userId) {
+            return <div className="flex justify-center items-center h-full"><p>Gagal melakukan otentikasi. Silakan refresh halaman.</p></div>;
+        }
+        const props = { db, userId, showToast };
+        switch (view) {
+            case 'dashboard':
+                return <Dashboard {...props} setView={handleSetView} />;
+            case 'semester':
+                return <DataSemester {...props} />;
+            case 'kelas':
+                return <DataKelas {...props} />;
+            case 'siswa':
+                return <DataSiswa {...props} />;
+            case 'absensi':
+                return <DataAbsensi {...props} />;
+            case 'rekap':
+                return <RekapAbsensi {...props} />;
+            default:
+                return <Welcome setView={handleSetView} />;
+        }
+    };
+    
+    const NavLink = ({ activeView, viewName, setView, icon, children }) => (
+        <button
+            onClick={() => setView(viewName)}
+            className={`flex items-center w-full text-left px-4 py-2.5 rounded-lg transition-colors duration-200 ${
+                activeView === viewName
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+        >
+            {icon}
+            <span className="ml-3">{children}</span>
+        </button>
+    );
+
+    const showSidebar = view !== 'welcome';
+
+    return (
+        <div className="flex h-screen bg-slate-100 font-sans">
+            <style>
+                {`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+                body { font-family: 'Inter', sans-serif; }
+                .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
+                @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+                @media print {
+                    body { background-color: white; }
+                    .print-hide { display: none; }
+                    #rekap-section, #rekap-section * { visibility: visible; }
+                    #rekap-section { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
+                    .print-only { display: block !important; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+                    thead { background-color: #f2f2f2; }
+                }
+                `}
+            </style>
+            
+            {toast.show && (
+                 <div className={`fixed bottom-5 right-5 z-50 p-4 rounded-lg shadow-lg text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} animate-fade-in-up`}>
+                    {toast.message}
+                </div>
+            )}
+
+            {showSidebar && isSidebarOpen && (
+                <div 
+                    className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                ></div>
+            )}
+
+            {showSidebar && (
+                <aside className={`fixed md:relative inset-y-0 left-0 w-64 bg-white shadow-lg flex-shrink-0 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 z-40 print-hide`}>
+                    <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                        <h1 className="text-xl font-bold text-blue-700">Absensi App</h1>
+                        <button className="md:hidden text-slate-500 hover:text-slate-800" onClick={() => setIsSidebarOpen(false)}>
+                            <X size={24} />
+                        </button>
+                    </div>
+                    <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
+                        <NavLink activeView={view} viewName="dashboard" setView={handleSetView} icon={<LayoutDashboard size={20} />}>Dashboard</NavLink>
+                        <NavLink activeView={view} viewName="absensi" setView={handleSetView} icon={<Calendar size={20} />}>Input Absensi</NavLink>
+                        <NavLink activeView={view} viewName="rekap" setView={handleSetView} icon={<BarChart3 size={20} />}>Rekap Absensi</NavLink>
+                        <div className="pt-4 mt-4 border-t border-slate-200">
+                            <h3 className="px-4 mb-2 text-xs font-semibold text-slate-400 uppercase">Manajemen Data</h3>
+                            <NavLink activeView={view} viewName="semester" setView={handleSetView} icon={<BookOpen size={20} />}>Data Semester</NavLink>
+                            <NavLink activeView={view} viewName="kelas" setView={handleSetView} icon={<BookCopy size={20} />}>Data Kelas</NavLink>
+                            <NavLink activeView={view} viewName="siswa" setView={handleSetView} icon={<Users size={20} />}>Data Siswa</NavLink>
+                        </div>
+                    </nav>
+                    <div className="p-4 border-t border-slate-200 text-xs text-slate-500">
+                        <p>App ID: <span className="font-mono bg-slate-200 px-1 rounded">{appId}</span></p>
+                        {userId && <p className="mt-1 truncate">User ID: <span className="font-mono bg-slate-200 px-1 rounded">{userId}</span></p>}
+                    </div>
+                </aside>
+            )}
+
+            <div className="flex-1 flex flex-col overflow-y-auto">
+                 {showSidebar && (
+                     <header className="md:hidden bg-white shadow-md p-4 flex items-center print-hide sticky top-0 z-20">
+                        <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600">
+                            <Menu size={24} />
+                        </button>
+                        <h1 className="text-lg font-bold text-slate-800 ml-4">{view.charAt(0).toUpperCase() + view.slice(1)}</h1>
+                    </header>
+                 )}
+                <main className="flex-1 p-4 md:p-6 lg:p-8">
+                    {renderMainContent()}
+                </main>
+            </div>
+        </div>
+    );
+}
